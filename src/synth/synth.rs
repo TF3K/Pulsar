@@ -1,78 +1,48 @@
-use crate::synth::waveform::WaveForm;
-use crate::synth::envelope::Envelope;
+use super::waveform::WaveForm;
+use super::envelope::Envelope;
+use super::adsr::ADSR;
+use super::oscillator::Oscillator;
+use super::key_mapping::{Note, PitchClass, get_pitch_class};
 
 use device_query::Keycode;
 use std::collections::{HashSet, HashMap};
+use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicU64, Ordering};
+use wide::f32x4;
 
 pub struct Synth {
-    pub sample_rate: f32,
-    pub sample_clock: AtomicU64,
-    pub active_keys: HashSet<Keycode>,
-    pub waveform: WaveForm,
-    pub key_envelopes: HashMap<Keycode, Envelope>,
-    pub detune: f32,
-    pub num_oscillators: u32,
-    pub envelope: Envelope,
-    pub master_volume: f32,
+    pub sample_rate:                f32,
+    pub sample_clock:               AtomicU64,
+    pub active_keys:                HashSet<Keycode>,
+    pub key_envelopes:              HashMap<Keycode, Envelope>,
+    pub oscillators:                HashMap<Keycode, Vec<Oscillator>>,
+    pub current_waveform:           WaveForm,
+    pub adsr:                       ADSR,
+    pub detune:                     f32,
+    pub num_oscillators:            u32,
+    pub master_volume:              f32,
 }
 
 impl Synth {
-    pub fn new(sample_rate: f32, attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
+    pub fn new(sample_rate: f32, adsr: ADSR) -> Self {
         Synth {
             sample_rate,
-            sample_clock: AtomicU64::new(0),
-            active_keys: HashSet::new(),
-            waveform: WaveForm::Sine,
-            key_envelopes: HashMap::new(),
-            detune: 0.0,
-            num_oscillators: 3,
-            envelope: Envelope::new(attack, decay, sustain, release),
-            master_volume: 1.0,
+            sample_clock:           AtomicU64::new(0),
+            active_keys:            HashSet::new(),
+            key_envelopes:          HashMap::new(),
+            oscillators:            HashMap::new(),
+            current_waveform:       WaveForm::Sine,
+            adsr,                 
+            detune:                 0.0,
+            num_oscillators:        3,
+            master_volume:          1.0,
         }
     }
 
     pub fn frequency(&self, key: Keycode) -> Option<f32> {
-        match key {
-            //white keys
-            Keycode::W => Some(130.81), // C3
-            Keycode::X => Some(146.83), // D3
-            Keycode::C => Some(164.81), // E3
-            Keycode::V => Some(174.61), // F3
-            Keycode::B => Some(196.00), // G3
-            Keycode::N => Some(220.00), // A3
-            Keycode::Comma => Some(246.94), // B3
-            Keycode::Dot => Some(261.63), // C4
-            Keycode::A => Some(261.63), // C4
-            Keycode::Z => Some(293.66), // D4
-            Keycode::E => Some(329.63), // E4
-            Keycode::R => Some(349.23), // F4
-            Keycode::T => Some(392.00), // G4
-            Keycode::Y => Some(440.00), // A4
-            Keycode::U => Some(493.88), // B4
-            Keycode::I => Some(523.25), // C5
-            Keycode::O => Some(587.33), // D5
-            Keycode::P => Some(659.25), // E5
-
-            // black keys
-            Keycode::S => Some(138.59), // C#3
-            Keycode::D => Some(155.56), // D#3
-            Keycode::G => Some(185.00), // F#3
-            Keycode::H => Some(207.65), // G#3
-            Keycode::J => Some(233.08), // A#3
-            Keycode::Key2 => Some(277.18), // C#4
-            Keycode::Key3 => Some(311.13), // D#4
-            Keycode::Key5 => Some(369.99), // F#4
-            Keycode::Key6 => Some(415.30), // G#4
-            Keycode::Key7 => Some(466.16), // A#4
-            Keycode::Key9 => Some(554.37), // C#5
-            Keycode::Key0 => Some(622.25), // D#5
-            _ => None,
-        }
-    }
-
-    pub fn get_sample_clock(&self) -> f32 {
-        self.sample_clock.load(Ordering::Relaxed) as f32 / self.sample_rate
+        get_pitch_class(&key)
+            .and_then(|pitch_class| FREQUENCY_MAP.get(pitch_class))
+            .cloned()
     }
 
     pub fn get_polyphonic_scaling_factor(&self) -> f32 {
@@ -92,10 +62,13 @@ impl Synth {
         let detune_factor = self.detune / 100.0;
         let detune_range = base_freq * detune_factor;
 
-        let step = detune_range / (self.num_oscillators as f32 - 1.0);
+        let step = detune_range / (self.num_oscillators as f32 - 1.0).max(1.0);
 
         (0..self.num_oscillators)
-            .map(|i| base_freq + (i as f32 * step) - (detune_range / 2.0))
+            .map(|i| {
+                let offset = (i as f32 * step) - (detune_range / 2.0);
+                base_freq * (1.0 + offset / base_freq)
+            })
             .collect()
     }
 
@@ -103,25 +76,61 @@ impl Synth {
         self.sample_clock.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn generate_waveform(&self, frequency: f32, t: f32) -> f32 {
-        let detuned_frequencies = self.get_detuned_frequencies(frequency);
-
-        let waveform_value = if self.num_oscillators == 1 {
-            self.waveform.generate(detuned_frequencies[0], t)
+    pub fn generate_waveform(&self, key: Keycode) -> f32 {
+        let t = self.get_sample_clock();
+    
+        if let Some(oscillators) = self.oscillators.get(&key) {
+            let mut waveform_value = 0.0;
+            let num_oscillators = oscillators.len();
+    
+            // SIMD processing for groups of 4 oscillators
+            for chunk in oscillators.chunks_exact(4) {
+                let samples = f32x4::from([
+                    chunk[0].next_sample(t),
+                    chunk[1].next_sample(t),
+                    chunk[2].next_sample(t),
+                    chunk[3].next_sample(t),
+                ]);
+                waveform_value += samples.reduce_add(); // Sum the elements of f32x4
+            }
+    
+            // Handle any remaining oscillators that couldn't be processed in groups of 4
+            let remainder = oscillators.chunks_exact(4).remainder();
+            for osc in remainder {
+                waveform_value += osc.next_sample(t);
+            }
+    
+            let normalized_value = waveform_value / (num_oscillators as f32).max(1.0).sqrt();
+    
+            let envelope_amplitude = self.key_envelopes.get(&key)
+                .map(|env| env.amplitude)
+                .unwrap_or(0.0);
+    
+            normalized_value * envelope_amplitude * self.master_volume
         } else {
-            detuned_frequencies
-                .iter()
-                .map(|&freq| self.waveform.generate(freq, t))
-                .sum::<f32>() / (self.num_oscillators as f32).max(1.0)
-        };
-
-        let normalized_value = waveform_value / (self.num_oscillators as f32).sqrt();
-
-        normalized_value * self.envelope.amplitude * self.master_volume
+            0.0
+        }
     }
 
     pub fn set_detune(&mut self, detune: f32) {
         self.detune = detune;
+        
+        let updates: Vec<(Keycode, Vec<f32>)> = self.oscillators.keys()
+            .filter_map(|&key| {
+                self.frequency(key).map(|base_freq| {
+                    let detuned_frequencies = self.get_detuned_frequencies(base_freq);
+                    (key, detuned_frequencies)
+                })
+            })
+            .collect();
+    
+        for (key, detuned_frequencies) in updates {
+            if let Some(oscillators) = self.oscillators.get_mut(&key) {
+                for (osc, &freq) in oscillators.iter_mut().zip(detuned_frequencies.iter()) {
+                    osc.set_frequency(freq);
+                }
+            }
+        }
     }
 
     pub fn update_envelope(&mut self) {
@@ -136,13 +145,61 @@ impl Synth {
 
     pub fn add_note(&mut self, key: Keycode) {
         if self.active_keys.insert(key) {
-            self.envelope.trigger_attack();
+            let mut new_envelope = Envelope::new(self.adsr, self.sample_rate);
+            new_envelope.trigger_attack();
+            self.key_envelopes.insert(key, new_envelope);
+    
+            if let Some(frequency) = self.frequency(key) {
+                let detuned_frequencies = self.get_detuned_frequencies(frequency);
+                let oscillators = detuned_frequencies
+                    .into_iter()
+                    .map(|freq| Oscillator::new(freq, self.sample_rate, self.current_waveform.clone()))
+                    .collect();
+                self.oscillators.insert(key, oscillators);
+            }
         }
     }
 
+    pub fn get_sample_clock(&self) -> f32 {
+        self.sample_clock.load(Ordering::Relaxed) as f32 / self.sample_rate
+    }
+    
     pub fn remove_note(&mut self, key: Keycode) {
-        if self.active_keys.remove(&key) && self.active_keys.is_empty() {
-            self.envelope.trigger_release();
+        if self.active_keys.remove(&key) {
+            if let Some(envelope) = self.key_envelopes.get_mut(&key) {
+                envelope.trigger_release();
+            }
+            self.oscillators.remove(&key);
         }
     }
+
+    pub fn toggle_waveform(&mut self) {
+        self.current_waveform.toggle();
+        
+        for oscillators in self.oscillators.values_mut() {
+            for osc in oscillators.iter_mut() {
+                osc.set_waveform(self.current_waveform.clone());
+            }
+        }
+    }
+}
+
+lazy_static! {
+    static ref FREQUENCY_MAP: HashMap<PitchClass, f32> = {
+        let mut m = HashMap::new();
+        let base_frequency = 440.0; // A4
+        let a4 = PitchClass::new(Note::A, 4);
+
+        for octave in 0..10 {
+            for note in [Note::C, Note::CSharp, Note::D, Note::DSharp, Note::E, Note::F, 
+                        Note::FSharp, Note::G, Note::GSharp, Note::A, Note::ASharp, Note::B].iter() {
+                let pitch_class = PitchClass::new(*note, octave);
+                let semitone_difference = (pitch_class.octave - a4.octave) * 12 +
+                    (*note as i32 - Note::A as i32);
+                let frequency = base_frequency * 2f32.powf(semitone_difference as f32 / 12.0);
+                m.insert(pitch_class, frequency);
+            }
+        }
+        m
+    };
 }

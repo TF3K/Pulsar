@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 use rand::Rng;
 
+#[derive(Clone)]
 pub enum WaveForm {
     Sine,
     Saw,

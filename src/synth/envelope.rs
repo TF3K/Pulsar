@@ -1,32 +1,33 @@
+use crate::synth::adsr::ADSR;
 use std::time::Instant;
 
+#[derive(PartialEq, Eq, Debug)]
 pub enum EnvelopeStage {
     Attack,
     Decay,
     Sustain,
     Release,
+    Finished
 }
 
 pub struct Envelope {
-    pub attack: f32,
-    pub decay: f32,
-    pub sustain: f32,
-    pub release: f32,
+    pub adsr: ADSR,
     pub stage: EnvelopeStage,
     pub start_time: Instant,
     pub amplitude: f32,
+    pub current_sample: usize,
+    pub sample_rate: f32,
 }
 
 impl Envelope {
-    pub fn new(attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
+    pub fn new(adsr: ADSR, sample_rate: f32) -> Self {
         Envelope {
-            attack,
-            decay,
-            sustain,
-            release,
+            adsr,
             stage: EnvelopeStage::Attack,
             start_time: Instant::now(),
             amplitude: 1.0,
+            current_sample: 0,
+            sample_rate,
         }
     }
 
@@ -34,44 +35,43 @@ impl Envelope {
         let elapsed = Instant::now() - self.start_time;
         let elapsed_secs = elapsed.as_secs_f32();
 
+        self.current_sample += 1;
         self.amplitude = match self.stage {
             EnvelopeStage::Attack => {
-                if elapsed_secs >= self.attack {
-                    // Move to the decay stage
+                if elapsed_secs >= self.adsr.attack {
                     self.stage = EnvelopeStage::Decay;
                     self.start_time = Instant::now();
                     1.0
                 } else {
-                    // Linearly increase the amplitude
-                    elapsed_secs / self.attack
+                    elapsed_secs / self.adsr.attack
                 }
             }
             EnvelopeStage::Decay => {
-                if elapsed_secs >= self.decay {
-                    // Move to the sustain stage
+                if elapsed_secs >= self.adsr.decay {
                     self.stage = EnvelopeStage::Sustain;
                     self.start_time = Instant::now();
-                    self.sustain
+                    self.adsr.sustain
                 } else {
-                    // Linearly decrease the amplitude to the sustain level
-                    let decay_progress = elapsed_secs / self.decay;
-                    1.0 + decay_progress * (self.sustain - 1.0)
+                    let decay_progress = elapsed_secs / self.adsr.decay;
+                    1.0 + decay_progress * (self.adsr.sustain - 1.0)
                 }
             }
-            EnvelopeStage::Sustain => {
-                // Maintain the sustain level
-                self.sustain
-            }
+            EnvelopeStage::Sustain => self.adsr.sustain,
             EnvelopeStage::Release => {
-                if elapsed_secs >= self.release {
-                    // End of the release phase
+                if elapsed_secs >= self.adsr.release {
+                    self.stage = EnvelopeStage::Finished;
                     0.0
                 } else {
-                    // Linearly decrease the amplitude to 0.0
-                    self.sustain * (1.0 - elapsed_secs / self.release)
+                    let release_progress = elapsed_secs / self.adsr.release;
+                    self.amplitude * (1.0 - release_progress)
                 }
-            }
+            },
+            EnvelopeStage::Finished => 0.0,
         };
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.stage == EnvelopeStage::Finished
     }
 
     pub fn trigger_attack(&mut self) {

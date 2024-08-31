@@ -12,7 +12,7 @@ impl Slider {
         Slider {
             min,
             max,
-            value: (min + max) / 2.0,
+            value: min,
             width,
         }
     }
@@ -23,7 +23,6 @@ impl Slider {
     }
 
     pub fn draw(&self) {
-        // Move cursor to the beginning of the line
         print!("\r");
 
         let filled_length = ((self.value - self.min) / (self.max - self.min) * self.width as f32) as usize;
@@ -37,7 +36,6 @@ impl Slider {
         }
         print!("] {:2}", self.value);
 
-        // Flush to ensure immediate update
         stdout().flush().unwrap();
     }
 
