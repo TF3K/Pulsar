@@ -34,7 +34,7 @@ impl Synth {
             current_waveform:       WaveForm::Sine,
             adsr,                 
             detune:                 0.0,
-            num_oscillators:        3,
+            num_oscillators:        4,
             master_volume:          1.0,
         }
     }
@@ -145,7 +145,7 @@ impl Synth {
 
     pub fn add_note(&mut self, key: Keycode) {
         if self.active_keys.insert(key) {
-            let mut new_envelope = Envelope::new(self.adsr, self.sample_rate);
+            let mut new_envelope = Envelope::new(self.adsr);
             new_envelope.trigger_attack();
             self.key_envelopes.insert(key, new_envelope);
     
@@ -153,7 +153,7 @@ impl Synth {
                 let detuned_frequencies = self.get_detuned_frequencies(frequency);
                 let oscillators = detuned_frequencies
                     .into_iter()
-                    .map(|freq| Oscillator::new(freq, self.sample_rate, self.current_waveform.clone()))
+                    .map(|freq| Oscillator::new(freq, self.current_waveform.clone()))
                     .collect();
                 self.oscillators.insert(key, oscillators);
             }

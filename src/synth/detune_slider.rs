@@ -1,10 +1,10 @@
 use std::io::{stdout, Write};
 
 pub struct Slider {
-    pub min: f32,
-    pub max: f32,
-    pub value: f32,
-    pub width: usize,
+    pub min:        f32,
+    pub max:        f32,
+    pub value:      f32,
+    pub width:      usize,
 }
 
 impl Slider {
@@ -12,7 +12,7 @@ impl Slider {
         Slider {
             min,
             max,
-            value: min,
+            value:  min,
             width,
         }
     }

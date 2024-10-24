@@ -1,9 +1,9 @@
 #[derive(Clone, Copy)]
 pub struct ADSR {
-    pub attack: f32,
-    pub decay: f32,
-    pub sustain: f32,
-    pub release: f32,
+    pub attack:     f32,
+    pub decay:      f32,
+    pub sustain:    f32,
+    pub release:    f32,
 }
 
 impl ADSR {

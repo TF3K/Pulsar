@@ -13,14 +13,13 @@ pub enum WaveForm {
 
 impl WaveForm {
     pub fn generate(&self, frequency: f32, t: f32) -> f32 {
+        let phase = t * frequency % 1.0;
         match self {
-            WaveForm::Sine => (t * frequency * 2.0 * PI).sin(),
+            WaveForm::Sine => (phase * 2.0 * PI).sin(),
             WaveForm::Saw => {
-                let phase = t * frequency % 1.0;
                 2.0 * phase - 1.0
             },
             WaveForm::Square => {
-                let phase = t * frequency % 1.0;
                 if phase < 0.5 {
                     1.0
                 } else {
@@ -28,7 +27,6 @@ impl WaveForm {
                 }
             },
             WaveForm::Pulse => {
-                let phase = t * frequency % 1.0;
                 if phase < 0.25 {
                     1.0
                 } else {
@@ -36,7 +34,6 @@ impl WaveForm {
                 }
             },
             WaveForm::Triangle => {
-                let phase = t * frequency % 1.0;
                 if phase < 0.25 {
                     4.0 * phase
                 } else if phase < 0.75 {

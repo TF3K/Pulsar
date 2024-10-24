@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub struct SynthSource {
-    synth: Arc<Mutex<Synth>>,
-    sample_rate: u32,
+    synth:          Arc<Mutex<Synth>>,
+    sample_rate:    u32,
 }
 
 impl SynthSource {

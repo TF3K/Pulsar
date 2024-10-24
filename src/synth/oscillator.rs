@@ -2,15 +2,13 @@ use super::waveform::WaveForm;
 
 pub struct Oscillator {
     pub frequency: f32,
-    pub sample_rate: f32,
     pub waveform: WaveForm,
 }
 
 impl Oscillator {
-    pub fn new(frequency: f32, sample_rate: f32, waveform: WaveForm) -> Self {
+    pub fn new(frequency: f32, waveform: WaveForm) -> Self {
         Oscillator {
             frequency,
-            sample_rate,
             waveform,
         }
     }

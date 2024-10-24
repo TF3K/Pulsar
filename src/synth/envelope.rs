@@ -9,25 +9,22 @@ pub enum EnvelopeStage {
     Release,
     Finished
 }
-
 pub struct Envelope {
-    pub adsr: ADSR,
-    pub stage: EnvelopeStage,
-    pub start_time: Instant,
-    pub amplitude: f32,
-    pub current_sample: usize,
-    pub sample_rate: f32,
+    pub adsr:                   ADSR,
+    pub stage:                  EnvelopeStage,
+    pub start_time:             Instant,
+    pub amplitude:              f32,
+    pub current_sample:         usize,
 }
 
 impl Envelope {
-    pub fn new(adsr: ADSR, sample_rate: f32) -> Self {
+    pub fn new(adsr: ADSR) -> Self {
         Envelope {
             adsr,
-            stage: EnvelopeStage::Attack,
-            start_time: Instant::now(),
-            amplitude: 1.0,
-            current_sample: 0,
-            sample_rate,
+            stage:              EnvelopeStage::Attack,
+            start_time:         Instant::now(),
+            amplitude:          1.0,
+            current_sample:     0,
         }
     }
 

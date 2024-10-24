@@ -56,6 +56,7 @@ lazy_static! {
         m.insert(Keycode::I, PitchClass::new(Note::C, 5));
         m.insert(Keycode::O, PitchClass::new(Note::D, 5));
         m.insert(Keycode::P, PitchClass::new(Note::E, 5));
+        // m.insert(Keycode::Ca)
         // Black keys
         m.insert(Keycode::S, PitchClass::new(Note::CSharp, 3));
         m.insert(Keycode::D, PitchClass::new(Note::DSharp, 3));
