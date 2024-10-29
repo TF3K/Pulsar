@@ -793,6 +793,7 @@ dependencies = [
  "rand",
  "rodio",
  "wide",
+ "winapi",
 ]
 
 [[package]]

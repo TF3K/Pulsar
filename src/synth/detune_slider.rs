@@ -22,8 +22,8 @@ impl Slider {
         self.value = self.min + ratio * (self.max - self.min);
     }
 
-    pub fn draw(&self) {
-        print!("\r");
+    pub fn draw(&self, label: &str) {
+        print!("\r {}: ", label);
 
         let filled_length = ((self.value - self.min) / (self.max - self.min) * self.width as f32) as usize;
 

@@ -34,24 +34,15 @@ impl Synth {
             current_waveform:       WaveForm::Sine,
             adsr,                 
             detune:                 0.0,
-            num_oscillators:        4,
+            num_oscillators:        3,
             master_volume:          1.0,
         }
     }
 
-    pub fn frequency(&self, key: Keycode) -> Option<f32> {
+    pub fn get_frequency(&self, key: Keycode) -> Option<f32> {
         get_pitch_class(&key)
-            .and_then(|pitch_class| FREQUENCY_MAP.get(pitch_class))
+            .and_then(|pitch_class| FREQUENCY_MAP.get(&pitch_class))
             .cloned()
-    }
-
-    pub fn get_polyphonic_scaling_factor(&self) -> f32 {
-        let num_active_keys = self.active_keys.len() as f32;
-        if num_active_keys <= 1.0 {
-            1.0
-        } else {
-            1.0 / num_active_keys.powf(0.5)
-        }
     }
 
     pub fn get_detuned_frequencies(&self, base_freq: f32) -> Vec<f32> {
@@ -76,6 +67,17 @@ impl Synth {
         self.sample_clock.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn get_polyphonic_scaling_factor(&self) -> f32 {
+        let num_active_keys = self.active_keys.len() as f32;
+        if num_active_keys <= 1.0 {
+            1.0
+        } else {
+            // More aggressive scaling for higher note counts
+            // This helps prevent distortion with chords
+            1.0 / (num_active_keys.powf(0.7))
+        }
+    }
+
     pub fn generate_waveform(&self, key: Keycode) -> f32 {
         let t = self.get_sample_clock();
     
@@ -89,18 +91,21 @@ impl Synth {
                     chunk[0].next_sample(t),
                     chunk[1].next_sample(t),
                     chunk[2].next_sample(t),
-                    chunk[3].next_sample(t),
+                    chunk[3].next_sample(t)
                 ]);
-                waveform_value += samples.reduce_add(); // Sum the elements of f32x4
+                
+                // Process the entire SIMD vector at once and sum
+                waveform_value += samples.reduce_add();
             }
     
-            // Handle any remaining oscillators that couldn't be processed in groups of 4
+            // Handle remaining oscillators
             let remainder = oscillators.chunks_exact(4).remainder();
             for osc in remainder {
                 waveform_value += osc.next_sample(t);
             }
     
-            let normalized_value = waveform_value / (num_oscillators as f32).max(1.0).sqrt();
+            // Improved normalization for cleaner chord sounds
+            let normalized_value = waveform_value / ((num_oscillators as f32).sqrt() * 1.5);
     
             let envelope_amplitude = self.key_envelopes.get(&key)
                 .map(|env| env.amplitude)
@@ -117,7 +122,7 @@ impl Synth {
         
         let updates: Vec<(Keycode, Vec<f32>)> = self.oscillators.keys()
             .filter_map(|&key| {
-                self.frequency(key).map(|base_freq| {
+                self.get_frequency(key).map(|base_freq| {
                     let detuned_frequencies = self.get_detuned_frequencies(base_freq);
                     (key, detuned_frequencies)
                 })
@@ -149,7 +154,7 @@ impl Synth {
             new_envelope.trigger_attack();
             self.key_envelopes.insert(key, new_envelope);
     
-            if let Some(frequency) = self.frequency(key) {
+            if let Some(frequency) = self.get_frequency(key) {
                 let detuned_frequencies = self.get_detuned_frequencies(frequency);
                 let oscillators = detuned_frequencies
                     .into_iter()
@@ -169,7 +174,6 @@ impl Synth {
             if let Some(envelope) = self.key_envelopes.get_mut(&key) {
                 envelope.trigger_release();
             }
-            self.oscillators.remove(&key);
         }
     }
 

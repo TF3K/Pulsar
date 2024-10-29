@@ -1,68 +1,63 @@
 use crate::synth::adsr::ADSR;
 use std::time::Instant;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum EnvelopeStage {
     Attack,
     Decay,
     Sustain,
     Release,
-    Finished
+    Finished,
 }
+
 pub struct Envelope {
-    pub adsr:                   ADSR,
-    pub stage:                  EnvelopeStage,
-    pub start_time:             Instant,
-    pub amplitude:              f32,
-    pub current_sample:         usize,
+    pub adsr: ADSR,
+    pub stage: EnvelopeStage,
+    pub start_time: Instant,
+    pub amplitude: f32,
+    pub release_start_amplitude: f32,
 }
 
 impl Envelope {
     pub fn new(adsr: ADSR) -> Self {
         Envelope {
             adsr,
-            stage:              EnvelopeStage::Attack,
-            start_time:         Instant::now(),
-            amplitude:          1.0,
-            current_sample:     0,
+            stage: EnvelopeStage::Attack,  // Start with Attack stage
+            start_time: Instant::now(),
+            amplitude: 0.0,  // Start at zero amplitude
+            release_start_amplitude: 0.0,
         }
     }
 
     pub fn update(&mut self) {
-        let elapsed = Instant::now() - self.start_time;
-        let elapsed_secs = elapsed.as_secs_f32();
-
-        self.current_sample += 1;
+        let elapsed = Instant::now().duration_since(self.start_time);
+        
         self.amplitude = match self.stage {
             EnvelopeStage::Attack => {
-                if elapsed_secs >= self.adsr.attack {
+                let amp = self.adsr.calculate_amplitude(self.stage, elapsed, 0.0);
+                if elapsed >= self.adsr.attack {
                     self.stage = EnvelopeStage::Decay;
                     self.start_time = Instant::now();
-                    1.0
-                } else {
-                    elapsed_secs / self.adsr.attack
                 }
+                amp
             }
             EnvelopeStage::Decay => {
-                if elapsed_secs >= self.adsr.decay {
+                let amp = self.adsr.calculate_amplitude(self.stage, elapsed, 0.0);
+                if elapsed >= self.adsr.decay {
                     self.stage = EnvelopeStage::Sustain;
-                    self.start_time = Instant::now();
-                    self.adsr.sustain
-                } else {
-                    let decay_progress = elapsed_secs / self.adsr.decay;
-                    1.0 + decay_progress * (self.adsr.sustain - 1.0)
                 }
+                amp
             }
-            EnvelopeStage::Sustain => self.adsr.sustain,
+            EnvelopeStage::Sustain => {
+                self.adsr.calculate_amplitude(self.stage, elapsed, 0.0)
+            }
             EnvelopeStage::Release => {
-                if elapsed_secs >= self.adsr.release {
+                let amp = self.adsr.calculate_amplitude(self.stage, elapsed, self.release_start_amplitude);
+                if elapsed >= self.adsr.release {
                     self.stage = EnvelopeStage::Finished;
-                    0.0
-                } else {
-                    let release_progress = elapsed_secs / self.adsr.release;
-                    self.amplitude * (1.0 - release_progress)
                 }
-            },
+                amp
+            }
             EnvelopeStage::Finished => 0.0,
         };
     }
@@ -74,10 +69,14 @@ impl Envelope {
     pub fn trigger_attack(&mut self) {
         self.stage = EnvelopeStage::Attack;
         self.start_time = Instant::now();
+        self.amplitude = 0.0;
     }
 
     pub fn trigger_release(&mut self) {
-        self.stage = EnvelopeStage::Release;
-        self.start_time = Instant::now();
+        if self.stage != EnvelopeStage::Release && self.stage != EnvelopeStage::Finished {
+            self.stage = EnvelopeStage::Release;
+            self.start_time = Instant::now();
+            self.release_start_amplitude = self.amplitude;
+        }
     }
 }
